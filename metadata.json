@@ -1,0 +1,5 @@
+{
+  "name": "Ping Monitor",
+  "description": "A professional uptime monitoring system similar to UptimeRobot, capable of monitoring multiple websites and storing monitoring history.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,420 @@
+import React, { useState, useEffect } from 'react';
+import { PlusCircle, Trash2, RefreshCw, Play, Pause, Activity, Globe, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { format } from 'date-fns';
+
+interface Site {
+  id: number;
+  url: string;
+  db_url?: string;
+  description: string;
+  check_interval: number;
+  status: string;
+  response_time: number | null;
+  last_checked: string | null;
+  uptime: string;
+}
+
+export default function Dashboard() {
+  const [sites, setSites] = useState<Site[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedSite, setSelectedSite] = useState<Site | null>(null);
+  const [siteLogs, setSiteLogs] = useState<any[]>([]);
+
+  // Form state
+  const [url, setUrl] = useState('');
+  const [dbUrl, setDbUrl] = useState('');
+  const [description, setDescription] = useState('');
+
+  const fetchSites = async () => {
+    try {
+      const res = await fetch('/api/sites', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSites(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch sites', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSites();
+    const intervalId = setInterval(fetchSites, 10000); // Refresh every 10s
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const handleAddSite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/sites', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ url, db_url: dbUrl, description }),
+      });
+      
+      if (res.ok) {
+        setShowAddModal(false);
+        setUrl('');
+        setDbUrl('');
+        setDescription('');
+        fetchSites();
+      }
+    } catch (error) {
+      console.error('Failed to add site', error);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this monitored site?')) return;
+    try {
+      const res = await fetch(`/api/sites/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        fetchSites();
+        if (selectedSite?.id === id) setSelectedSite(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete site', error);
+    }
+  };
+
+  const handleCheckNow = async (id: number) => {
+    try {
+      const res = await fetch(`/api/sites/${id}/check`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        fetchSites();
+        if (selectedSite?.id === id) fetchLogs(id);
+      }
+    } catch (error) {
+      console.error('Failed to check site', error);
+    }
+  };
+
+  const fetchLogs = async (id: number) => {
+    try {
+      const res = await fetch(`/api/sites/${id}/logs`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSiteLogs(data.reverse()); // Reverse for chronological order in chart
+      }
+    } catch (error) {
+      console.error('Failed to fetch logs', error);
+    }
+  };
+
+  const handleSelectSite = (site: Site) => {
+    setSelectedSite(site);
+    fetchLogs(site.id);
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'Online': return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
+      case 'Offline': return <XCircle className="w-5 h-5 text-red-500" />;
+      case 'Slow': return <AlertCircle className="w-5 h-5 text-yellow-500" />;
+      default: return <Activity className="w-5 h-5 text-zinc-500" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Online': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+      case 'Offline': return 'bg-red-500/10 text-red-500 border-red-500/20';
+      case 'Slow': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
+      default: return 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20';
+    }
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-full"><RefreshCw className="w-8 h-8 animate-spin text-emerald-500" /></div>;
+  }
+
+  const overallUptime = sites.length > 0 
+    ? (sites.reduce((acc, site) => acc + parseFloat(site.uptime || '0'), 0) / sites.length).toFixed(2)
+    : '0.00';
+
+  const onlineCount = sites.filter(s => s.status === 'Online').length;
+  const offlineCount = sites.filter(s => s.status === 'Offline').length;
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Top Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex items-center gap-4">
+          <div className="p-4 bg-emerald-500/10 rounded-xl">
+            <Activity className="w-8 h-8 text-emerald-500" />
+          </div>
+          <div>
+            <p className="text-sm text-zinc-400 font-medium">Overall Uptime</p>
+            <p className="text-3xl font-bold text-zinc-100">{overallUptime}%</p>
+          </div>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex items-center gap-4">
+          <div className="p-4 bg-blue-500/10 rounded-xl">
+            <Globe className="w-8 h-8 text-blue-500" />
+          </div>
+          <div>
+            <p className="text-sm text-zinc-400 font-medium">Monitored Sites</p>
+            <p className="text-3xl font-bold text-zinc-100">{sites.length}</p>
+          </div>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex items-center gap-4">
+          <div className="p-4 bg-red-500/10 rounded-xl">
+            <XCircle className="w-8 h-8 text-red-500" />
+          </div>
+          <div>
+            <p className="text-sm text-zinc-400 font-medium">Currently Down</p>
+            <p className="text-3xl font-bold text-zinc-100">{offlineCount}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h3 className="text-xl font-semibold text-zinc-100">Monitored Projects</h3>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center justify-center w-full sm:w-auto gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+        >
+          <PlusCircle className="w-4 h-4" />
+          Add Project
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Sites List */}
+        <div className="lg:col-span-1 space-y-4">
+          {sites.length === 0 ? (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+              <Globe className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
+              <p className="text-zinc-400">No sites monitored yet.</p>
+              <button 
+                onClick={() => setShowAddModal(true)}
+                className="mt-4 text-emerald-500 hover:text-emerald-400 text-sm font-medium"
+              >
+                Add your first monitor
+              </button>
+            </div>
+          ) : (
+            sites.map(site => (
+              <div 
+                key={site.id} 
+                onClick={() => handleSelectSite(site)}
+                className={`bg-zinc-900 border rounded-2xl p-5 cursor-pointer transition-all hover:border-zinc-600 ${selectedSite?.id === site.id ? 'border-emerald-500/50 ring-1 ring-emerald-500/50' : 'border-zinc-800'}`}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-2">
+                    {getStatusIcon(site.status)}
+                    <h4 className="font-medium text-zinc-100 truncate max-w-[180px]" title={site.url}>
+                      {site.url.replace(/^https?:\/\//, '')}
+                    </h4>
+                  </div>
+                  <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${getStatusColor(site.status)}`}>
+                    {site.status}
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    {site.response_time ? `${site.response_time}ms` : 'N/A'}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" />
+                    {site.uptime}%
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Site Details & Chart */}
+        <div className="lg:col-span-2">
+          {selectedSite ? (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 h-full flex flex-col">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                <div className="w-full sm:w-auto truncate">
+                  <h2 className="text-2xl font-bold text-zinc-100 mb-2 truncate" title={selectedSite.url}>{selectedSite.url}</h2>
+                  <p className="text-zinc-400 text-sm truncate">{selectedSite.description || 'No description provided'}</p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button 
+                    onClick={() => handleCheckNow(selectedSite.id)}
+                    className="flex-1 sm:flex-none flex justify-center p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-colors"
+                    title="Check Now"
+                  >
+                    <RefreshCw className="w-5 h-5" />
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(selectedSite.id)}
+                    className="flex-1 sm:flex-none flex justify-center p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl transition-colors"
+                    title="Delete Monitor"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
+                <div className="bg-zinc-800/50 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Status</p>
+                  <p className={`font-medium ${selectedSite.status === 'Online' ? 'text-emerald-500' : selectedSite.status === 'Offline' ? 'text-red-500' : 'text-yellow-500'}`}>
+                    {selectedSite.status}
+                  </p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Response Time</p>
+                  <p className="font-medium text-zinc-100">{selectedSite.response_time ? `${selectedSite.response_time}ms` : '-'}</p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Uptime</p>
+                  <p className="font-medium text-zinc-100">{selectedSite.uptime}%</p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Interval</p>
+                  <p className="font-medium text-zinc-100">5 mins</p>
+                </div>
+              </div>
+
+              {selectedSite.db_url && (
+                <div className="bg-zinc-800/30 rounded-xl p-4 mb-8 border border-zinc-800/50">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Database URL (SQLiteCloud)</p>
+                  <p className="font-medium text-zinc-300 truncate" title={selectedSite.db_url}>{selectedSite.db_url}</p>
+                </div>
+              )}
+              
+              <div className={`flex-1 min-h-[300px] ${!selectedSite.db_url ? 'mt-4' : ''}`}>
+                <h4 className="text-sm font-medium text-zinc-400 mb-4">Response Time History</h4>
+                {siteLogs.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={siteLogs}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                      <XAxis 
+                        dataKey="checked_at" 
+                        tickFormatter={(val) => format(new Date(val + 'Z'), 'HH:mm')}
+                        stroke="#71717a"
+                        fontSize={12}
+                        tickMargin={10}
+                      />
+                      <YAxis 
+                        stroke="#71717a" 
+                        fontSize={12}
+                        tickFormatter={(val) => `${val}ms`}
+                        width={60}
+                      />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+                        labelFormatter={(val) => format(new Date(val + 'Z'), 'MMM d, HH:mm:ss')}
+                        formatter={(val: number) => [`${val} ms`, 'Response Time']}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="response_time" 
+                        stroke="#10b981" 
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 6, fill: '#10b981', stroke: '#18181b', strokeWidth: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-500">
+                    Waiting for initial check data...
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 h-full flex items-center justify-center text-zinc-500">
+              Select a site to view details
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-zinc-100">Add New Project</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-zinc-400 hover:text-zinc-100">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddSite} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1">Project URL (Render, etc.)</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://my-project.onrender.com"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1">Database URL (SQLiteCloud) <span className="text-zinc-500 font-normal">- Optional</span></label>
+                <input
+                  type="url"
+                  placeholder="https://my-db.sqlite.cloud"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={dbUrl}
+                  onChange={(e) => setDbUrl(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1">Friendly Name / Description (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="My Production Server"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+              <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
+                <p className="text-sm text-zinc-400 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-500" />
+                  Ping Interval: <strong>Every 5 minutes</strong> (Fixed)
+                </p>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2.5 rounded-xl font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-medium transition-colors"
+                >
+                  Add Project
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
