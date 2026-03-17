@@ -10,7 +10,11 @@ const db = new Database('sqlitecloud://cmq6frwshz.g4.sqlite.cloud:8860/System_pi
 
 async function initDb() {
   await db.sql`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)`;
-  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
+  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, last_status TEXT, last_checked DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
+  
+  // Ensure columns exist (simple check)
+  try { await db.sql`ALTER TABLE projects ADD COLUMN last_status TEXT`; } catch (e) {}
+  try { await db.sql`ALTER TABLE projects ADD COLUMN last_checked DATETIME`; } catch (e) {}
 }
 initDb().catch(console.error);
 
@@ -31,19 +35,32 @@ async function startServer() {
     });
   };
 
-  // Ping logic (runs every 5 minutes)
+  // Ping logic (runs every 30 seconds)
   setInterval(async () => {
     try {
       const projects = await db.sql`SELECT * FROM projects`;
       for (const project of projects as any[]) {
-        console.log(`Pinging project: ${project.page_url} and ${project.db_url}`);
-        fetch(project.page_url).catch(e => console.error(`Ping failed for ${project.page_url}`, e));
-        fetch(project.db_url).catch(e => console.error(`Ping failed for ${project.db_url}`, e));
+        const checkTime = new Date().toISOString();
+        
+        const ping = async (url: string) => {
+            try {
+                const res = await fetch(url);
+                return res.ok ? 'Online' : 'Offline';
+            } catch {
+                return 'Offline';
+            }
+        };
+
+        const pageStatus = await ping(project.page_url);
+        const dbStatus = await ping(project.db_url);
+        const finalStatus = (pageStatus === 'Online' && dbStatus === 'Online') ? 'Online' : 'Offline';
+
+        await db.sql`UPDATE projects SET last_status = ${finalStatus}, last_checked = ${checkTime} WHERE id = ${project.id}`;
       }
     } catch (error) {
       console.error('Ping job failed', error);
     }
-  }, 5 * 60 * 1000);
+  }, 30 * 1000);
 
   // Auth routes
   app.post('/api/register', async (req, res) => {
