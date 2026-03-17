@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PlusCircle, Trash2, RefreshCw, Activity, Globe, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { format } from 'date-fns';
 
 interface SiteLog {
@@ -325,6 +325,38 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              <div className="bg-zinc-800/30 rounded-xl p-4 mb-8 border border-zinc-800/50">
+                <h4 className="text-sm font-medium text-zinc-400 mb-4">Current Status Overview</h4>
+                <ResponsiveContainer width="100%" height={150}>
+                  <BarChart data={[
+                    { name: 'Page', status: selectedSite.status === 'Online' ? 1 : selectedSite.status === 'Offline' ? 0 : 0.5 },
+                    { name: 'DB', status: selectedSite.db_status === 'Online' ? 1 : selectedSite.db_status === 'Offline' ? 0 : 0.5 },
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis dataKey="name" stroke="#71717a" fontSize={12} />
+                    <YAxis domain={[0, 1]} ticks={[0, 0.5, 1]} stroke="#71717a" fontSize={12} tickFormatter={(val) => val === 1 ? 'Online' : val === 0 ? 'Offline' : 'Pending'} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+                      formatter={(val: number) => [val === 1 ? 'Online' : val === 0 ? 'Offline' : 'Pending', 'Status']}
+                    />
+                    <Bar dataKey="status" radius={[4, 4, 0, 0]}>
+                      {[
+                        { name: 'Page', status: selectedSite.status === 'Online' ? 1 : selectedSite.status === 'Offline' ? 0 : 0.5 },
+                        { name: 'DB', status: selectedSite.db_status === 'Online' ? 1 : selectedSite.db_status === 'Offline' ? 0 : 0.5 }
+                      ].map((entry, index) => {
+                        let color;
+                        if (index === 0) { // Page
+                          color = entry.status === 1 ? '#10b981' : entry.status === 0 ? '#ef4444' : '#71717a';
+                        } else { // DB
+                          color = entry.status === 1 ? '#f97316' : entry.status === 0 ? '#ef4444' : '#71717a';
+                        }
+                        return <Cell key={`cell-${index}`} fill={color} />;
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
               {selectedSite.db_url && (
                 <div className="bg-zinc-800/30 rounded-xl p-4 mb-8 border border-zinc-800/50">
                   <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Database URL (SQLiteCloud)</p>
@@ -334,55 +366,49 @@ export default function Dashboard() {
               
               <div className={`flex-1 min-h-[300px] ${!selectedSite.db_url ? 'mt-4' : ''}`}>
                 <h4 className="text-sm font-medium text-zinc-400 mb-4">Response Time History</h4>
-                {selectedSite.logs && selectedSite.logs.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={[...selectedSite.logs].reverse()}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis 
-                        dataKey="checked_at" 
-                        tickFormatter={(val) => {
-                          try {
-                            return format(new Date(val), 'HH:mm:ss');
-                          } catch (e) {
-                            return val;
-                          }
-                        }}
-                        stroke="#71717a"
-                        fontSize={12}
-                        tickMargin={10}
-                      />
-                      <YAxis 
-                        stroke="#71717a" 
-                        fontSize={12}
-                        tickFormatter={(val) => `${val}ms`}
-                        width={60}
-                      />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                        labelFormatter={(val) => {
-                          try {
-                            return format(new Date(val), 'MMM d, HH:mm:ss');
-                          } catch (e) {
-                            return val;
-                          }
-                        }}
-                        formatter={(val: number) => [`${val} ms`, 'Response Time']}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="response_time" 
-                        stroke="#10b981" 
-                        strokeWidth={2}
-                        dot={false}
-                        activeDot={{ r: 6, fill: '#10b981', stroke: '#18181b', strokeWidth: 2 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-zinc-500">
-                    Waiting for initial check data...
-                  </div>
-                )}
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={[...selectedSite.logs].map(log => ({ ...log, response_time: log.response_time ?? 0 })).reverse()}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis 
+                      dataKey="checked_at" 
+                      tickFormatter={(val) => {
+                        try {
+                          return format(new Date(val), 'HH:mm:ss');
+                        } catch (e) {
+                          return val;
+                        }
+                      }}
+                      stroke="#71717a"
+                      fontSize={12}
+                      tickMargin={10}
+                    />
+                    <YAxis 
+                      stroke="#71717a" 
+                      fontSize={12}
+                      tickFormatter={(val) => `${val}ms`}
+                      width={60}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+                      labelFormatter={(val) => {
+                        try {
+                          return format(new Date(val), 'MMM d, HH:mm:ss');
+                        } catch (e) {
+                          return val;
+                        }
+                      }}
+                      formatter={(val: number) => [`${val} ms`, 'Response Time']}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="response_time" 
+                      stroke="#10b981" 
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 6, fill: '#10b981', stroke: '#18181b', strokeWidth: 2 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
           ) : (
