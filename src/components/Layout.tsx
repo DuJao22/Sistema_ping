@@ -1,17 +1,9 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { Activity, LogOut, PlusCircle, Settings, Home, Menu, X } from 'lucide-react';
+import { Outlet, Link } from 'react-router-dom';
+import { Activity, Home, Menu, X } from 'lucide-react';
 import React, { useState } from 'react';
 
-export default function Layout({ setAuth }: { setAuth: (auth: boolean) => void }) {
-  const navigate = useNavigate();
+export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setAuth(false);
-    navigate('/login');
-  };
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -42,16 +34,6 @@ export default function Layout({ setAuth }: { setAuth: (auth: boolean) => void }
           </Link>
           {/* Future links can go here */}
         </nav>
-
-        <div className="p-4 border-t border-zinc-800">
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-            Sign Out
-          </button>
-        </div>
       </aside>
 
       {/* Main Content */}
@@ -65,11 +47,6 @@ export default function Layout({ setAuth }: { setAuth: (auth: boolean) => void }
               <Menu className="w-6 h-6" />
             </button>
             <h2 className="text-lg font-medium text-zinc-300">Overview</h2>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-zinc-400 hidden sm:block truncate max-w-[200px]">
-              Welcome, {JSON.parse(localStorage.getItem('user') || '{}').name}
-            </div>
           </div>
         </header>
         

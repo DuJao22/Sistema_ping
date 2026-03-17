@@ -1,126 +1,135 @@
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, Trash2, RefreshCw, Play, Pause, Activity, Globe, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { PlusCircle, Trash2, RefreshCw, Activity, Globe, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 
+interface SiteLog {
+  checked_at: string;
+  response_time: number | null;
+  status: string;
+}
+
 interface Site {
-  id: number;
+  id: string;
   url: string;
   db_url?: string;
   description: string;
-  check_interval: number;
   status: string;
   response_time: number | null;
   last_checked: string | null;
   uptime: string;
+  logs: SiteLog[];
 }
 
 export default function Dashboard() {
   const [sites, setSites] = useState<Site[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
-  const [siteLogs, setSiteLogs] = useState<any[]>([]);
 
   // Form state
   const [url, setUrl] = useState('');
   const [dbUrl, setDbUrl] = useState('');
   const [description, setDescription] = useState('');
 
-  const fetchSites = async () => {
-    try {
-      const res = await fetch('/api/sites', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSites(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch sites', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Load from LocalStorage on mount
   useEffect(() => {
-    fetchSites();
-    const intervalId = setInterval(fetchSites, 10000); // Refresh every 10s
-    return () => clearInterval(intervalId);
+    const saved = localStorage.getItem('ping_sites');
+    if (saved) {
+      try {
+        setSites(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse sites from local storage');
+      }
+    }
   }, []);
 
-  const handleAddSite = async (e: React.FormEvent) => {
+  // Save to LocalStorage whenever sites change
+  useEffect(() => {
+    localStorage.setItem('ping_sites', JSON.stringify(sites));
+    if (selectedSite) {
+      const updated = sites.find(s => s.id === selectedSite.id);
+      if (updated) setSelectedSite(updated);
+    }
+  }, [sites]);
+
+  const handleAddSite = (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const res = await fetch('/api/sites', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ url, db_url: dbUrl, description }),
-      });
-      
-      if (res.ok) {
-        setShowAddModal(false);
-        setUrl('');
-        setDbUrl('');
-        setDescription('');
-        fetchSites();
-      }
-    } catch (error) {
-      console.error('Failed to add site', error);
-    }
+    const newSite: Site = {
+      id: Date.now().toString(),
+      url,
+      db_url: dbUrl || undefined,
+      description,
+      status: 'Pending',
+      response_time: null,
+      last_checked: null,
+      uptime: '100.00',
+      logs: []
+    };
+    setSites([...sites, newSite]);
+    setShowAddModal(false);
+    setUrl('');
+    setDbUrl('');
+    setDescription('');
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: string) => {
     if (!confirm('Are you sure you want to delete this monitored site?')) return;
+    setSites(sites.filter(s => s.id !== id));
+    if (selectedSite?.id === id) setSelectedSite(null);
+  };
+
+  const checkSite = async (siteId: string) => {
+    const site = sites.find(s => s.id === siteId);
+    if (!site) return;
+
     try {
-      const res = await fetch(`/api/sites/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        fetchSites();
-        if (selectedSite?.id === id) setSelectedSite(null);
-      }
+      // Call our serverless function to avoid CORS
+      const res = await fetch(`/api/ping?url=${encodeURIComponent(site.url)}`);
+      const data = await res.json();
+
+      const newLog: SiteLog = {
+        checked_at: new Date().toISOString(),
+        status: data.status,
+        response_time: data.responseTime
+      };
+
+      setSites(prev => prev.map(s => {
+        if (s.id === siteId) {
+          const updatedLogs = [newLog, ...s.logs].slice(0, 50); // Keep last 50 logs
+          const onlineCount = updatedLogs.filter(l => l.status === 'Online').length;
+          const uptime = ((onlineCount / updatedLogs.length) * 100).toFixed(2);
+
+          return {
+            ...s,
+            status: data.status,
+            response_time: data.responseTime,
+            last_checked: newLog.checked_at,
+            uptime,
+            logs: updatedLogs
+          };
+        }
+        return s;
+      }));
     } catch (error) {
-      console.error('Failed to delete site', error);
+      console.error('Ping failed', error);
     }
   };
 
-  const handleCheckNow = async (id: number) => {
-    try {
-      const res = await fetch(`/api/sites/${id}/check`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        fetchSites();
-        if (selectedSite?.id === id) fetchLogs(id);
-      }
-    } catch (error) {
-      console.error('Failed to check site', error);
-    }
+  const handleCheckNow = (id: string) => {
+    checkSite(id);
   };
 
-  const fetchLogs = async (id: number) => {
-    try {
-      const res = await fetch(`/api/sites/${id}/logs`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSiteLogs(data.reverse()); // Reverse for chronological order in chart
-      }
-    } catch (error) {
-      console.error('Failed to fetch logs', error);
-    }
-  };
+  // Auto-ping every 30 seconds while dashboard is open
+  useEffect(() => {
+    if (sites.length === 0) return;
+    const interval = setInterval(() => {
+      sites.forEach(site => checkSite(site.id));
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [sites]);
 
   const handleSelectSite = (site: Site) => {
     setSelectedSite(site);
-    fetchLogs(site.id);
   };
 
   const getStatusIcon = (status: string) => {
@@ -140,10 +149,6 @@ export default function Dashboard() {
       default: return 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20';
     }
   };
-
-  if (loading) {
-    return <div className="flex items-center justify-center h-full"><RefreshCw className="w-8 h-8 animate-spin text-emerald-500" /></div>;
-  }
 
   const overallUptime = sites.length > 0 
     ? (sites.reduce((acc, site) => acc + parseFloat(site.uptime || '0'), 0) / sites.length).toFixed(2)
@@ -288,7 +293,7 @@ export default function Dashboard() {
                 </div>
                 <div className="bg-zinc-800/50 rounded-xl p-4">
                   <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Interval</p>
-                  <p className="font-medium text-zinc-100">5 mins</p>
+                  <p className="font-medium text-zinc-100">30s (Active)</p>
                 </div>
               </div>
 
@@ -301,13 +306,19 @@ export default function Dashboard() {
               
               <div className={`flex-1 min-h-[300px] ${!selectedSite.db_url ? 'mt-4' : ''}`}>
                 <h4 className="text-sm font-medium text-zinc-400 mb-4">Response Time History</h4>
-                {siteLogs.length > 0 ? (
+                {selectedSite.logs && selectedSite.logs.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={siteLogs}>
+                    <LineChart data={[...selectedSite.logs].reverse()}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                       <XAxis 
                         dataKey="checked_at" 
-                        tickFormatter={(val) => format(new Date(val + 'Z'), 'HH:mm')}
+                        tickFormatter={(val) => {
+                          try {
+                            return format(new Date(val), 'HH:mm:ss');
+                          } catch (e) {
+                            return val;
+                          }
+                        }}
                         stroke="#71717a"
                         fontSize={12}
                         tickMargin={10}
@@ -320,7 +331,13 @@ export default function Dashboard() {
                       />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
-                        labelFormatter={(val) => format(new Date(val + 'Z'), 'MMM d, HH:mm:ss')}
+                        labelFormatter={(val) => {
+                          try {
+                            return format(new Date(val), 'MMM d, HH:mm:ss');
+                          } catch (e) {
+                            return val;
+                          }
+                        }}
                         formatter={(val: number) => [`${val} ms`, 'Response Time']}
                       />
                       <Line 
@@ -393,7 +410,7 @@ export default function Dashboard() {
               <div className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
                 <p className="text-sm text-zinc-400 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-emerald-500" />
-                  Ping Interval: <strong>Every 5 minutes</strong> (Fixed)
+                  Ping Interval: <strong>Every 30 seconds</strong> (While open)
                 </p>
               </div>
               <div className="pt-4 flex gap-3">

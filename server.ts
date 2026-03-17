@@ -1,33 +1,44 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { initDb } from './server/database/db.js';
-import authRoutes from './server/routes/auth.js';
-import siteRoutes from './server/routes/sites.js';
-import { startMonitoring } from './server/services/monitor.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  // API Route for pinging
+  app.get('/api/ping', async (req, res) => {
+    const url = req.query.url as string;
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
 
-  // Initialize Database
-  initDb();
-
-  // Start Background Monitoring
-  startMonitoring();
-
-  // API Routes
-  app.use('/api/auth', authRoutes);
-  app.use('/api/sites', siteRoutes);
-
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'PingMonitor/1.0' }
+      });
+      
+      clearTimeout(timeoutId);
+      const responseTime = Date.now() - startTime;
+      
+      res.status(200).json({
+        status: response.ok ? 'Online' : 'Offline',
+        responseTime,
+        statusCode: response.status
+      });
+    } catch (error: any) {
+      res.status(200).json({
+        status: 'Offline',
+        responseTime: null,
+        error: error.message
+      });
+    }
   });
 
   // Vite middleware for development
