@@ -1,9 +1,17 @@
-import { Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { Activity, Home, Menu, X } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+    }
+  }, [navigate]);
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -32,8 +40,25 @@ export default function Layout() {
             <Home className="w-5 h-5" />
             Dashboard
           </Link>
-          {/* Future links can go here */}
+          <button 
+            onClick={() => {
+              localStorage.removeItem('token');
+              navigate('/login');
+            }}
+            className="flex w-full items-center gap-3 px-4 py-3 rounded-xl text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+          >
+            <Activity className="w-5 h-5" />
+            Logout
+          </button>
         </nav>
+
+        {/* Credits */}
+        <div className="p-4 border-t border-zinc-800 text-xs text-zinc-500 space-y-1">
+          <p>Desenvolvido por João Layon</p>
+          <a href="https://instagram.com/Layon.Dev" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:text-emerald-400">
+            @Layon.Dev
+          </a>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -53,10 +78,6 @@ export default function Layout() {
         <div className="flex-1 overflow-auto p-4 md:p-8">
           <Outlet />
         </div>
-
-        <footer className="py-4 px-4 text-center text-xs text-zinc-500 border-t border-zinc-800 shrink-0">
-          De todos os créditos a João Layon. Desenvolvedor Full Stack, Instagram profissional @Layon.Dev. Otimizado para hospedar no vercel.
-        </footer>
       </main>
     </div>
   );

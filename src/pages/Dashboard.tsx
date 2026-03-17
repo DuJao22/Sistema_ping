@@ -15,6 +15,7 @@ interface Site {
   db_url?: string;
   description: string;
   status: string;
+  db_status: string;
   response_time: number | null;
   last_checked: string | null;
   uptime: string;
@@ -31,45 +32,65 @@ export default function Dashboard() {
   const [dbUrl, setDbUrl] = useState('');
   const [description, setDescription] = useState('');
 
-  // Load from LocalStorage on mount
+  // Load from Backend on mount
   useEffect(() => {
-    const saved = localStorage.getItem('ping_sites');
-    if (saved) {
-      try {
-        setSites(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse sites from local storage');
+    const fetchProjects = async () => {
+      const response = await fetch('/api/projects', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSites(data.map((p: any) => ({
+          id: p.id.toString(),
+          url: p.page_url,
+          db_url: p.db_url,
+          description: '',
+          status: p.page_status || 'Pending',
+          db_status: p.db_status || 'Pending',
+          response_time: null,
+          last_checked: p.last_checked,
+          uptime: '100.00',
+          logs: []
+        })));
       }
-    }
+    };
+    fetchProjects();
   }, []);
 
-  // Save to LocalStorage whenever sites change
-  useEffect(() => {
-    localStorage.setItem('ping_sites', JSON.stringify(sites));
-    if (selectedSite) {
-      const updated = sites.find(s => s.id === selectedSite.id);
-      if (updated) setSelectedSite(updated);
-    }
-  }, [sites]);
-
-  const handleAddSite = (e: React.FormEvent) => {
+  const handleAddSite = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newSite: Site = {
-      id: Date.now().toString(),
-      url,
-      db_url: dbUrl || undefined,
-      description,
-      status: 'Pending',
-      response_time: null,
-      last_checked: null,
-      uptime: '100.00',
-      logs: []
-    };
-    setSites([...sites, newSite]);
-    setShowAddModal(false);
-    setUrl('');
-    setDbUrl('');
-    setDescription('');
+    const response = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({ page_url: url, db_url: dbUrl }),
+    });
+    if (response.ok) {
+      setShowAddModal(false);
+      setUrl('');
+      setDbUrl('');
+      setDescription('');
+      // Refresh projects
+      const res = await fetch('/api/projects', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      setSites(data.map((p: any) => ({
+        id: p.id.toString(),
+        url: p.page_url,
+        db_url: p.db_url,
+        description: '',
+        status: p.last_status || 'Pending',
+        response_time: null,
+        last_checked: p.last_checked,
+        uptime: '100.00',
+        logs: []
+      })));
+    } else {
+      alert('Failed to add project');
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -229,9 +250,14 @@ export default function Dashboard() {
                       {site.url.replace(/^https?:\/\//, '')}
                     </h4>
                   </div>
-                  <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${getStatusColor(site.status)}`}>
-                    {site.status}
-                  </span>
+                  <div className="flex gap-1">
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${getStatusColor(site.status)}`} title="Page Status">
+                      P: {site.status === 'Online' ? 'OK' : 'Down'}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${getStatusColor(site.db_status)}`} title="DB Status">
+                      DB: {site.db_status === 'Online' ? 'OK' : 'Down'}
+                    </span>
+                  </div>
                 </div>
                 
                 <div className="flex items-center justify-between text-xs text-zinc-400">
@@ -278,9 +304,15 @@ export default function Dashboard() {
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
                 <div className="bg-zinc-800/50 rounded-xl p-4">
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Status</p>
-                  <p className={`font-medium ${selectedSite.status === 'Online' ? 'text-emerald-500' : selectedSite.status === 'Offline' ? 'text-red-500' : 'text-yellow-500'}`}>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Page Status</p>
+                  <p className={`font-medium ${selectedSite.status === 'Online' ? 'text-emerald-500' : 'text-red-500'}`}>
                     {selectedSite.status}
+                  </p>
+                </div>
+                <div className="bg-zinc-800/50 rounded-xl p-4">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">DB Status</p>
+                  <p className={`font-medium ${selectedSite.db_status === 'Online' ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {selectedSite.db_status}
                   </p>
                 </div>
                 <div className="bg-zinc-800/50 rounded-xl p-4">
@@ -290,10 +322,6 @@ export default function Dashboard() {
                 <div className="bg-zinc-800/50 rounded-xl p-4">
                   <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Uptime</p>
                   <p className="font-medium text-zinc-100">{selectedSite.uptime}%</p>
-                </div>
-                <div className="bg-zinc-800/50 rounded-xl p-4">
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold mb-1">Interval</p>
-                  <p className="font-medium text-zinc-100">30s (Active)</p>
                 </div>
               </div>
 

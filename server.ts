@@ -10,10 +10,11 @@ const db = new Database('sqlitecloud://cmq6frwshz.g4.sqlite.cloud:8860/System_pi
 
 async function initDb() {
   await db.sql`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)`;
-  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, last_status TEXT, last_checked DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
+  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, page_status TEXT, db_status TEXT, last_checked DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
   
-  // Ensure columns exist (simple check)
-  try { await db.sql`ALTER TABLE projects ADD COLUMN last_status TEXT`; } catch (e) {}
+  // Ensure columns exist
+  try { await db.sql`ALTER TABLE projects ADD COLUMN page_status TEXT`; } catch (e) {}
+  try { await db.sql`ALTER TABLE projects ADD COLUMN db_status TEXT`; } catch (e) {}
   try { await db.sql`ALTER TABLE projects ADD COLUMN last_checked DATETIME`; } catch (e) {}
 }
 initDb().catch(console.error);
@@ -53,9 +54,8 @@ async function startServer() {
 
         const pageStatus = await ping(project.page_url);
         const dbStatus = await ping(project.db_url);
-        const finalStatus = (pageStatus === 'Online' && dbStatus === 'Online') ? 'Online' : 'Offline';
 
-        await db.sql`UPDATE projects SET last_status = ${finalStatus}, last_checked = ${checkTime} WHERE id = ${project.id}`;
+        await db.sql`UPDATE projects SET page_status = ${pageStatus}, db_status = ${dbStatus}, last_checked = ${checkTime} WHERE id = ${project.id}`;
       }
     } catch (error) {
       console.error('Ping job failed', error);
@@ -94,7 +94,7 @@ async function startServer() {
       return res.status(400).json({ error: 'page_url and db_url are required' });
     }
     try {
-      await db.sql`INSERT INTO projects (user_id, page_url, db_url) VALUES (${user_id}, ${page_url}, ${db_url})`;
+      await db.sql`INSERT INTO projects (user_id, page_url, db_url, page_status, db_status) VALUES (${user_id}, ${page_url}, ${db_url}, 'Pending', 'Pending')`;
       res.status(201).json({ message: 'Project added' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to add project' });
