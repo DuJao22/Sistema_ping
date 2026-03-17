@@ -44,6 +44,15 @@ async function startServer() {
         const checkTime = new Date().toISOString();
         
         const ping = async (url: string) => {
+            if (url.startsWith('sqlitecloud://')) {
+                try {
+                    const dbTest = new Database(url);
+                    await dbTest.sql`SELECT 1`;
+                    return 'Online';
+                } catch {
+                    return 'Offline';
+                }
+            }
             try {
                 const res = await fetch(url);
                 return res.ok ? 'Online' : 'Offline';
@@ -61,6 +70,16 @@ async function startServer() {
       console.error('Ping job failed', error);
     }
   }, 30 * 1000);
+
+  // Keep-alive for SQLite Cloud (runs every 5 minutes)
+  setInterval(async () => {
+    try {
+      await db.sql`SELECT 1`;
+      console.log('SQLite Cloud keep-alive ping successful');
+    } catch (error) {
+      console.error('SQLite Cloud keep-alive ping failed', error);
+    }
+  }, 5 * 60 * 1000);
 
   // Auth routes
   app.post('/api/register', async (req, res) => {
