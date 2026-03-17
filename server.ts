@@ -10,12 +10,13 @@ const db = new Database('sqlitecloud://cmq6frwshz.g4.sqlite.cloud:8860/System_pi
 
 async function initDb() {
   await db.sql`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL)`;
-  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, page_status TEXT, db_status TEXT, last_checked DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
+  await db.sql`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_url TEXT NOT NULL, db_url TEXT NOT NULL, page_status TEXT, db_status TEXT, last_checked DATETIME, last_db_checked DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))`;
   
   // Ensure columns exist
   try { await db.sql`ALTER TABLE projects ADD COLUMN page_status TEXT`; } catch (e) {}
   try { await db.sql`ALTER TABLE projects ADD COLUMN db_status TEXT`; } catch (e) {}
   try { await db.sql`ALTER TABLE projects ADD COLUMN last_checked DATETIME`; } catch (e) {}
+  try { await db.sql`ALTER TABLE projects ADD COLUMN last_db_checked DATETIME`; } catch (e) {}
 }
 initDb().catch(console.error);
 
@@ -43,7 +44,16 @@ async function startServer() {
       for (const project of projects as any[]) {
         const checkTime = new Date().toISOString();
         
-        const ping = async (url: string) => {
+        const pingPage = async (url: string) => {
+            try {
+                const res = await fetch(url);
+                return res.ok ? 'Online' : 'Offline';
+            } catch {
+                return 'Offline';
+            }
+        };
+
+        const pingDb = async (url: string) => {
             if (url.startsWith('sqlitecloud://')) {
                 try {
                     const dbTest = new Database(url);
@@ -53,18 +63,20 @@ async function startServer() {
                     return 'Offline';
                 }
             }
-            try {
-                const res = await fetch(url);
-                return res.ok ? 'Online' : 'Offline';
-            } catch {
-                return 'Offline';
-            }
+            return 'Offline';
         };
 
-        const pageStatus = await ping(project.page_url);
-        const dbStatus = await ping(project.db_url);
+        const pageStatus = await pingPage(project.page_url);
+        
+        let dbStatus = project.db_status;
+        let lastDbChecked = project.last_db_checked;
+        
+        if (!lastDbChecked || Date.now() - new Date(lastDbChecked).getTime() >= 5 * 60 * 1000) {
+            dbStatus = await pingDb(project.db_url);
+            lastDbChecked = new Date().toISOString();
+        }
 
-        await db.sql`UPDATE projects SET page_status = ${pageStatus}, db_status = ${dbStatus}, last_checked = ${checkTime} WHERE id = ${project.id}`;
+        await db.sql`UPDATE projects SET page_status = ${pageStatus}, db_status = ${dbStatus}, last_checked = ${checkTime}, last_db_checked = ${lastDbChecked} WHERE id = ${project.id}`;
       }
     } catch (error) {
       console.error('Ping job failed', error);
@@ -113,7 +125,7 @@ async function startServer() {
       return res.status(400).json({ error: 'page_url and db_url are required' });
     }
     try {
-      await db.sql`INSERT INTO projects (user_id, page_url, db_url, page_status, db_status) VALUES (${user_id}, ${page_url}, ${db_url}, 'Pending', 'Pending')`;
+      await db.sql`INSERT INTO projects (user_id, page_url, db_url, page_status, db_status, last_db_checked) VALUES (${user_id}, ${page_url}, ${db_url}, 'Pending', 'Pending', NULL)`;
       res.status(201).json({ message: 'Project added' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to add project' });
